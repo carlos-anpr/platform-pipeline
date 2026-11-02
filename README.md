@@ -16,6 +16,7 @@ carlos-anpr/platform-pipeline   (PRIVADO · escritura: solo administradores)
 ├── repos/<repo>.json                   ← lo específico de un repo (cobertura, excepciones, comandos)
 ├── rulesets/                           ← las normas: reglas de organización y de este repo
 ├── caller/agentic-ci.yml               ← (plan Team) el archivo de 15 líneas que el admin instala
+├── caller/AGENTS.md                    ← AGENTS.md inicial que recibe cada repo nuevo
 ├── org-dot-github/                     ← plantillas de PR e issue para el repo público carlos-anpr/.github
 ├── scripts/platform_admin.py           ← configure · bootstrap · enroll (se puede repetir sin miedo)
 ├── scripts/release_targets.py          ← qué repos publica release-central.yml
@@ -137,7 +138,17 @@ python scripts/platform_admin.py enroll --org carlos-anpr --repo mi-app         
 python scripts/platform_admin.py enroll --org carlos-anpr --repo mi-app --apply    # Enterprise: añade --enterprise
 ```
 
-Marca el repo con `pipeline=agentica` (desde ese momento le aplican las reglas), activa el auto-merge y el bloqueo de secretos al hacer push, crea las etiquetas `ai:*` y, en plan Team, abre un PR con el archivo llamador. Cuando `pipeline / ci-gate` esté en verde, mergéalo. Se puede repetir (p. ej. tras un fallo a medias o para cambiar `--approvals`): reutiliza la rama, los archivos y el PR que ya existan.
+**Proyecto nuevo (lo normal):** plataforma da de alta el repo y los desarrolladores solo suben código, como en GitLab.
+
+1. Si el repo **no existe**, lo crea vacío (privado en una organización, público con `--personal`).
+2. Si está **vacío**, el archivo llamador y un `AGENTS.md` inicial (y con `--personal` la plantilla de PR) entran como **primer commit directo, sin PR** y sin código del proyecto. Crea `develop` y la deja como rama por defecto (`--no-develop` para trabajar solo con `main`).
+3. Después marca el repo con `pipeline=agentica` (desde ese momento le aplican las reglas), activa el auto-merge y el bloqueo de secretos al hacer push y crea las etiquetas `ai:*`.
+
+Los desarrolladores clonan, crean su rama, suben código y abren su PR: el pipeline salta solo. Plataforma no ve ni mergea código.
+
+**Repo que ya tiene código (migración):** el llamador llega en un PR que solo contiene archivos de plataforma. Cuando `pipeline / ci-gate` esté en verde, mergéalo. Se puede repetir (p. ej. tras un fallo a medias o para cambiar `--approvals`): reutiliza la rama, los archivos y el PR que ya existan.
+
+Para que **ningún** repo quede fuera del pipeline, limita en la organización quién crea repos (*Settings → Member privileges → Repository creation*): así todos nacen con `enroll`.
 
 Lo único que el proyecto necesita **es suyo, no del pipeline**: un lockfile (`package-lock.json`), sus scripts normales (`test`, `start`) y tests. Recomendado, no obligatorio: un `AGENTS.md` con las reglas para sus agentes de IA.
 
@@ -195,6 +206,6 @@ Un cambio incompatible (p. ej. un check nuevo que haría fallar PRs existentes) 
 - **Criterios**: `acceptance` exige que `AC-n` esté en el nombre de un test, pero no comprueba que el runner lo descubra; eso lo cubre la revisión. Si se editan los criterios en la **issue** enlazada, el check no se relanza solo (*Re-run jobs*).
 - **`policy-config`** cubre la configuración conocida y los archivos que los scripts `lint`/`test`/`coverage` ejecutan directamente; no sigue cadenas de `import` arbitrarias. Las configuraciones que ya fueran laxas antes del alta las revisa plataforma al dar de alta el repo.
 - **Admisión de dependencias**: si `quality` rechaza una dependencia nueva, no instala el proyecto (lint y formato se ejecutan cuando se resuelva).
-- **Pendiente de verificar en GitHub real**: que los rulesets acepten el evento `edited` en el workflow requerido (Enterprise) y el nombre exacto del check (`pipeline / ci-gate`, app 15368).
+- **Verificado en GitHub real (2026-11-02, modo `--personal`)**: el nombre exacto del check (`pipeline / ci-gate`) y que la regla de rama lo reconoce. **Pendiente**: que los rulesets acepten el evento `edited` en el workflow requerido (Enterprise).
 - **Back-merge tras cada release**: el commit de release queda en `main`; devuélvelo a `develop` con un PR desde una rama `chore/back-merge-vX.Y.Z`.
 - **Validación**: las 44 pruebas, actionlint y zizmor pasan, el modo "cero configuración" se probó de extremo a extremo con la app de ejemplo y las 7 reglas de `quality` se probaron en local con un PR correcto y otro con defectos (Node y Python). El job `quality` **aún no se ha ejecutado en GitHub Actions real**. Las llamadas de `platform_admin.py` a la API de GitHub siguen la especificación oficial, pero **no se han ejecutado contra una organización real**: haz la primera vez en simulación y revisa la salida.

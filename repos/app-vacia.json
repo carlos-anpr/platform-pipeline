@@ -1,0 +1,10 @@
+{
+  "$comment": "Ejemplo: repo de prueba del alta sin PR (app-vacia, con el código de examples/mi-app). Solo lo que difiere de _default.json.",
+  "exceptions": [
+    {
+      "path": "src/server.js",
+      "rule": "diff-coverage",
+      "reason": "el arranque del servidor no lo carga ningún test unitario; lo cubre el job smoke"
+    }
+  ]
+}

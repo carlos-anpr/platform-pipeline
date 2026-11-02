@@ -538,5 +538,106 @@ class PersonalModeTest(unittest.TestCase):
         self.assertTrue(all(a.get('actor_id') == 1 for a in push['bypass_actors'] if a['actor_type'] == 'OrganizationAdmin'))
 
 
+class FakeGitHub:
+    """Sustituye a subprocess.run de platform_admin: responde a `gh api` y registra las escrituras."""
+    def __init__(self, routes):
+        self.routes, self.writes = routes, []
+
+    def __call__(self, cmd, input=None, **_):
+        path = cmd[2]
+        method = cmd[cmd.index('--method') + 1] if '--method' in cmd else 'GET'
+        if method != 'GET':
+            self.writes.append((method, path, json.loads(input) if input else None))
+        for (m, prefix), answer in self.routes.items():
+            if m == method and path.startswith(prefix):
+                if answer == 404:
+                    return subprocess.CompletedProcess(cmd, 1, stdout='', stderr='gh: Not Found (HTTP 404)')
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(answer), stderr='')
+        if method == 'GET':
+            return subprocess.CompletedProcess(cmd, 1, stdout='', stderr='gh: Not Found (HTTP 404)')
+        return subprocess.CompletedProcess(cmd, 0, stdout='{}', stderr='')
+
+
+class EnrollTest(unittest.TestCase):
+    """Alta de repos: uno nuevo o vacío no necesita PR ni código del proyecto; uno con código, sí."""
+
+    def setUp(self):
+        import argparse
+        import shutil
+        spec = importlib.util.spec_from_file_location('platform_admin', ACTIONS.parent / 'scripts' / 'platform_admin.py')
+        self.admin = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.admin)
+        self.tmp = tempfile.TemporaryDirectory()
+        root = pathlib.Path(self.tmp.name)
+        for folder in ('caller', 'org-dot-github', 'rulesets', 'repos'):
+            shutil.copytree(ACTIONS.parent / folder, root / folder)
+        caller = root / 'caller' / 'agentic-ci.yml'
+        caller.write_text(caller.read_text(encoding='utf-8').replace('TU-' + 'ORG', 'yo'), encoding='utf-8')  # 'TU-' + 'ORG': configure no la reescribe
+        self.admin.ROOT = root
+        self.args = lambda **kw: argparse.Namespace(**{'org': 'yo', 'repo': 'nueva', 'personal': True, 'enterprise': False,
+                                                        'approvals': 0, 'apply': True, 'no_develop': False, **kw})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_enroll(self, routes, **kw):
+        from unittest import mock
+        fake = FakeGitHub(routes)
+        with mock.patch.object(self.admin.subprocess, 'run', side_effect=fake), contextlib.redirect_stdout(io.StringIO()):
+            self.admin.cmd_enroll(self.args(**kw))
+        return fake.writes
+
+    def test_repo_nuevo_se_crea_y_recibe_el_llamador_sin_pr_antes_de_las_reglas(self):
+        writes = self.run_enroll({
+            ('GET', 'repos/yo/nueva/git/ref/heads/main'): {'object': {'sha': 'abc'}},
+            ('GET', 'repos/yo/nueva/rulesets'): [],
+            ('GET', 'repos/yo/nueva'): 404, ('GET', 'user'): {'login': 'yo'},
+            ('POST', 'user/repos'): {'visibility': 'public', 'default_branch': 'main'}})
+        paths = [(m, p) for m, p, _ in writes]
+        self.assertEqual(paths[0], ('POST', 'user/repos'))
+        self.assertFalse(writes[0][2]['private'])
+        puts = [(p, d) for m, p, d in writes if m == 'PUT' and '/contents/' in p]
+        self.assertEqual([p.split('/contents/')[1] for p, _ in puts],
+                         ['.github/workflows/agentic-ci.yml', '.github/pull_request_template.md', 'AGENTS.md'])
+        self.assertTrue(all('branch' not in d for _, d in puts))  # van a la rama por defecto
+        first_rule = paths.index(('POST', 'repos/yo/nueva/rulesets'))
+        self.assertLess(paths.index(('PUT', 'repos/yo/nueva/contents/AGENTS.md')), first_rule)
+        self.assertIn(('POST', 'repos/yo/nueva/git/refs'), paths[:first_rule])
+        self.assertIn({'default_branch': 'develop'}, [d for m, p, d in writes if p == 'repos/yo/nueva'])
+        self.assertNotIn(('POST', 'repos/yo/nueva/pulls'), paths)
+
+    def test_repo_vacio_existente_sin_develop(self):
+        writes = self.run_enroll({('GET', 'repos/yo/nueva/branches'): [], ('GET', 'repos/yo/nueva/rulesets'): [],
+                                  ('GET', 'repos/yo/nueva'): {'visibility': 'public', 'default_branch': 'main'}},
+                                 no_develop=True)
+        paths = [(m, p) for m, p, _ in writes]
+        self.assertNotIn(('POST', 'user/repos'), paths)
+        self.assertNotIn(('POST', 'repos/yo/nueva/git/refs'), paths)
+        self.assertNotIn(('POST', 'repos/yo/nueva/pulls'), paths)
+        self.assertIn(('PUT', 'repos/yo/nueva/contents/.github/workflows/agentic-ci.yml'), paths)
+
+    def test_repo_con_codigo_recibe_el_llamador_por_pr_y_sin_agents(self):
+        writes = self.run_enroll({
+            ('GET', 'repos/yo/nueva/branches'): [{'name': 'main'}],
+            ('GET', 'repos/yo/nueva/git/ref/heads/main'): {'object': {'sha': 'abc'}},
+            ('GET', 'repos/yo/nueva/git/ref/heads/platform'): 404,
+            ('GET', 'repos/yo/nueva/contents/'): 404, ('GET', 'repos/yo/nueva/pulls'): [],
+            ('GET', 'repos/yo/nueva/rulesets'): [],
+            ('GET', 'repos/yo/nueva'): {'visibility': 'public', 'default_branch': 'main'},
+            ('POST', 'repos/yo/nueva/pulls'): {'html_url': 'https://github.com/yo/nueva/pull/1'}})
+        puts = [(p, d) for m, p, d in writes if m == 'PUT' and '/contents/' in p]
+        self.assertTrue(puts and all(d['branch'] == 'platform/agentic-ci' for _, d in puts))
+        self.assertNotIn('AGENTS.md', [p.split('/contents/')[1] for p, _ in puts])
+        self.assertIn(('POST', 'repos/yo/nueva/pulls'), [(m, p) for m, p, _ in writes])
+
+    def test_simulacion_de_repo_nuevo_no_escribe_nada(self):
+        writes = self.run_enroll({('GET', 'repos/yo/nueva'): 404, ('GET', 'user'): {'login': 'yo'}}, apply=False)
+        self.assertEqual(writes, [])
+
+    def test_personal_exige_que_org_sea_tu_usuario(self):
+        with self.assertRaises(SystemExit):
+            self.run_enroll({('GET', 'repos/yo/nueva'): 404, ('GET', 'user'): {'login': 'otro'}})
+
+
 if __name__ == '__main__':
     unittest.main()
