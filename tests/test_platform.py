@@ -572,7 +572,7 @@ class EnrollTest(unittest.TestCase):
         for folder in ('caller', 'org-dot-github', 'rulesets', 'repos'):
             shutil.copytree(ACTIONS.parent / folder, root / folder)
         caller = root / 'caller' / 'agentic-ci.yml'
-        caller.write_text(caller.read_text(encoding='utf-8').replace('TU-' + 'ORG', 'yo')  # configure no reescribe esta línea, encoding='utf-8')
+        caller.write_text(caller.read_text(encoding='utf-8').replace('TU-' + 'ORG', 'yo'), encoding='utf-8')  # 'TU-' + 'ORG': configure no la reescribe
         self.admin.ROOT = root
         self.args = lambda **kw: argparse.Namespace(**{'org': 'yo', 'repo': 'nueva', 'personal': True, 'enterprise': False,
                                                         'approvals': 0, 'apply': True, 'no_develop': False, **kw})
