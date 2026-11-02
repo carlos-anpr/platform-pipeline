@@ -175,6 +175,34 @@ class GuardrailsTest(unittest.TestCase):
         self.r.commit('head')
         self.assertEqual({v[0] for v in guard.check(base, 'HEAD', [])}, {'policy-config'})
 
+    def test_proyecto_nuevo_crear_configuracion_es_aviso(self):
+        """Repo recién dado de alta (solo archivos de plataforma): el primer PR crea package.json con sus
+        scripts, la config de lint y el script que ejecuta los tests. Avisa, no bloquea."""
+        self.r.close()
+        self.r = Repo()
+        self.r.write('.github/workflows/agentic-ci.yml', 'name: x\n')
+        self.r.write('AGENTS.md', '# reglas\n')
+        base = self.r.commit('plataforma')
+        self.r.write('package.json', '{\n  "scripts": {"test": "node tools/run-tests.js", "coverage": "c8 npm test",'
+                                     ' "lint": "biome lint ."}\n}\n')
+        self.r.write('tools/run-tests.js', 'require("node:test");\n')
+        self.r.write('biome.json', '{}\n')
+        self.r.write('test/a.test.js', "test.skip('x', () => { expect(1).toBe(1); });\n")
+        self.r.commit('primer código')
+        warnings = []
+        found = guard.check(base, 'HEAD', [], warnings)
+        self.assertEqual([(r, p) for r, p, _, _ in found], [('test-skip', 'test/a.test.js')])  # lo demás sigue igual
+        self.assertEqual(sorted(p for _, p, _, _ in warnings), ['biome.json', 'package.json', 'tools/run-tests.js'])
+        # Una vez creado el proyecto, cambiar esa configuración vuelve a bloquear
+        created = subprocess.run(['git', 'rev-parse', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip()
+        self.r.write('package.json', '{\n  "scripts": {"test": "node -e 0", "coverage": "c8 npm test", "lint": "true"}\n}\n')
+        self.r.write('.eslintignore', '*\n')
+        self.r.commit('debilita')
+        warnings = []
+        found = guard.check(created, 'HEAD', [], warnings)
+        self.assertEqual(sorted(p for r, p, _, _ in found if r == 'policy-config'), ['.eslintignore', 'package.json'])
+        self.assertEqual(warnings, [])
+
     def test_ruta_con_acentos(self):
         self.r.write('test/café.test.js', "test.skip('x', () => { expect(1).toBe(1); });\n")
         self.r.commit('head')

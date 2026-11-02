@@ -13,6 +13,8 @@ Detecta, solo leyendo git (sin ejecutar nada del PR):
     jest/vitest config, .gitleaks.toml, .semgrepignore, osv-scanner.toml…), en los scripts
     lint/test/coverage de package.json o en las secciones [tool.ruff|black|pytest|coverage…]
     de pyproject.toml. Así un PR (o un agente) no puede relajar las reglas que lo juzgan.
+    Excepción: en un proyecto NUEVO (el commit base no tiene ningún manifiesto: package.json,
+    pyproject.toml…), CREAR esa configuración es solo un aviso; cambiarla después bloquea.
 
 Las excepciones legítimas las pone plataforma en repos/<repo>.json -> exceptions, que el
 job convierte en un archivo:  <glob de ruta>  <regla|*>   # motivo
@@ -46,6 +48,10 @@ SCRIPT_PATH = re.compile(r'(?<![\w@:/.-])(?:\./)?((?:[\w.-]+/)*[\w.-]+\.(?:[cm]?
 PKG_SCRIPTS = ('lint', 'test', 'coverage', 'pretest', 'posttest', 'format', 'check', 'typecheck')
 PKG_KEYS = ('jest', 'c8', 'nyc', 'mocha', 'ava', 'eslintConfig', 'eslintIgnore', 'prettier', 'vitest', 'jscpd')
 PYPROJECT_TOOLS = ('ruff', 'black', 'pytest', 'coverage', 'mypy', 'pylint', 'flake8', 'isort')
+# Manifiestos de proyecto: si el commit base no tiene ninguno, el PR es el que CREA el proyecto
+MANIFEST = re.compile(
+    r'(^|/)(package\.json|pyproject\.toml|requirements[^/]*\.txt|setup\.py|Pipfile|go\.mod|pom\.xml'
+    r'|build\.gradle(\.kts)?|Cargo\.toml|[^/]*\.(csproj|fsproj|sln))$', re.I)
 
 LINE_RULES = [
     ('test-skip', 'test desactivado',
@@ -260,10 +266,29 @@ def thresholds(lines):
     return found
 
 
-def check(base, head, allow):
-    violations = []  # (regla, ruta, línea|None, mensaje)
+def is_new_project(base):
+    """True si el commit base no tiene ningún manifiesto de proyecto (repo recién dado de alta)."""
+    return not any(MANIFEST.search(p) and '/node_modules/' not in f'/{p}'
+                   for p in git('ls-tree', '-r', '--name-only', base).splitlines())
+
+
+def check(base, head, allow, warnings=None):
+    """Lista de violaciones (regla, ruta, línea|None, mensaje). En un proyecto NUEVO (base sin manifiesto),
+    CREAR la configuración de lint/tests/cobertura no debilita nada: va a `warnings` (aviso) en vez de bloquear.
+    Cambiar o borrar una configuración que ya existía sigue bloqueando."""
+    violations = []
+    warnings = [] if warnings is None else warnings
     rng = f'{base}...{head}'
     changes = name_status(rng)
+    new_project = is_new_project(base)
+
+    def policy(st, path, msg):
+        if new_project and st == 'A':
+            warnings.append(('policy-config', path, None, 'proyecto nuevo: crea la configuración que decide qué se '
+                             'comprueba. Revisa en este PR que no la deja sin efecto (los cambios posteriores bloquearán)'))
+        else:
+            violations.append(('policy-config', path, None, msg))
+
     for st, old, new in changes:
         if st == 'D' and TEST_PATH.search(old) and not allowed(allow, old, 'test-deleted'):
             violations.append(('test-deleted', old, None, 'archivo de test borrado'))
@@ -271,21 +296,21 @@ def check(base, head, allow):
             violations.append(('test-deleted', old, None, f'test renombrado a {new}, que ya no se ejecuta como test'))
         for path in {old, new}:
             if POLICY_FILES.search(path) and not allowed(allow, path, 'policy-config'):
-                violations.append(('policy-config', path, None, 'cambia la configuración de lint, formato, tests, cobertura o '
-                                   'escáneres. Pide a plataforma una excepción policy-config en repos/<repo>.json'))
+                policy(st, path, 'cambia la configuración de lint, formato, tests, cobertura o '
+                       'escáneres. Pide a plataforma una excepción policy-config en repos/<repo>.json')
                 break
         # package.json, pyproject.toml y vite.config: solo sus claves de política, también al borrar o renombrar
         if (policy_reader(old) or policy_reader(new)) and not allowed(allow, new, 'policy-config'):
             keys = policy_changes(base, head, old, new, deleted=(st == 'D'))
             if keys:
-                violations.append(('policy-config', new, None, 'cambia ' + ', '.join(keys) + ': decide qué comprueban los '
-                                   'checks. Pide a plataforma una excepción policy-config en repos/<repo>.json'))
+                policy(st, new, 'cambia ' + ', '.join(keys) + ': decide qué comprueban los '
+                       'checks. Pide a plataforma una excepción policy-config en repos/<repo>.json')
     runners = script_files(base, head)
     for st, old, new in changes:
         hit = next((p for p in (old, new) if p in runners), None)
         if hit and not allowed(allow, hit, 'policy-config'):
-            violations.append(('policy-config', hit, None, 'es el script que ejecuta lint/test/coverage desde package.json: '
-                               'cambiarlo cambia lo que se comprueba. Pide a plataforma una excepción policy-config'))
+            policy(st, hit, 'es el script que ejecuta lint/test/coverage desde package.json: '
+                   'cambiarlo cambia lo que se comprueba. Pide a plataforma una excepción policy-config')
     diff = parse_diff(git('diff', '--no-color', '--unified=0', '-M', rng))
     asserts_added = asserts_removed = 0
     loss_by_file = {}
@@ -326,7 +351,10 @@ def main():
     if not args.base or re.fullmatch(r'0+', args.base):
         print('Sin commit base (rama nueva o evento sin diff): no aplica.')
         return 0
-    violations = check(args.base, args.head, load_allow(args.allow_file))
+    warnings = []
+    violations = check(args.base, args.head, load_allow(args.allow_file), warnings)
+    for rid, path, _, msg in warnings:
+        print(f'::warning file={path},title=Guardarraíl {rid} (aviso)::{msg}')
     if not violations:
         print('OK: el cambio no debilita tests, supresiones ni umbrales de cobertura.')
         return 0

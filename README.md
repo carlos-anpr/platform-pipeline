@@ -84,6 +84,8 @@ Un PR (o un agente) podría relajar los checks sin tocar este repo: un `.semgrep
 
 Se vigila también al **borrar o renombrar** cualquiera de ellos (borrar `pyproject.toml` con `[tool.ruff]` relaja el lint).
 
+**Proyecto nuevo:** si el commit base no tiene ningún manifiesto (`package.json`, `pyproject.toml`, `requirements*.txt`, `go.mod`, `pom.xml`…), como pasa en el primer PR de un repo recién dado de alta, **crear** esa configuración es solo un **aviso** en el PR: no hay nada que debilitar. Cambiarla o borrarla después bloquea como siempre.
+
 Si el cambio es legítimo (p. ej. añadir un formateador), plataforma añade `{"path": "biome.json", "rule": "policy-config", "reason": "…"}` en `repos/<repo>.json`, publica `v1` y, cuando el PR entra, puede retirar la excepción. En una organización, estos archivos también piden revisión del equipo `platform` (rulesets).
 
 **Falsos positivos de gitleaks**: plataforma los aprueba en `actions/security-scan/gitleaks.toml` (`[allowlist]` con la ruta o el patrón, y un comentario con el repo y el motivo) y publica `v1`. Si un repo traía un `.gitleaksignore`, hay que pasar sus entradas ahí.
