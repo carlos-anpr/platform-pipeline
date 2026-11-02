@@ -7,9 +7,11 @@
       Propiedad "pipeline", acceso de Actions al repo central, reglas del repo central y
       reglas de organización (develop, main, bloqueo de .github/workflows y, en Enterprise,
       el workflow requerido).
-  python scripts/platform_admin.py enroll --org MI-ORG --repo NOMBRE [--enterprise] [--apply]
-      Da de alta un repo de código: propiedad pipeline=agentica, bloqueo de secretos al hacer
-      push, etiquetas ai:* y (plan Team) un PR con el archivo llamador, que mergea el admin.
+  python scripts/platform_admin.py enroll --org MI-ORG --repo NOMBRE [--enterprise] [--no-develop] [--apply]
+      Da de alta un repo de código. Si no existe, lo crea vacío. Si está vacío, el archivo llamador
+      (y AGENTS.md) entran como primer commit, sin PR, y se crea develop como rama por defecto.
+      Después: propiedad pipeline=agentica, bloqueo de secretos al hacer push y etiquetas ai:*.
+      Solo un repo que YA tiene código recibe el llamador por PR (lo mergea el admin).
 
 Modo prueba gratis (--personal): --org es TU USUARIO y los repos son públicos de tu cuenta.
 No hay reglas de organización ni equipos: enroll pone reglas de rama en el propio repo (con
@@ -90,7 +92,12 @@ class Admin:
         return rules
 
     def upsert_ruleset(self, scope, rules):
-        existing = self.gh(f'{scope}/rulesets?per_page=100', read=True) or []
+        try:
+            existing = self.gh(f'{scope}/rulesets?per_page=100', read=True) or []
+        except RuntimeError as error:   # simulación sobre un repo que aún no existe
+            if self.apply or not ('404' in str(error) or 'Not Found' in str(error)):
+                raise
+            existing = []
         match = next((r for r in existing if r['name'] == rules['name']), None)
         if match:
             print(f' - {rules["name"]}: existe, se actualiza')
@@ -155,7 +162,7 @@ def cmd_bootstrap(args):
         tag = a.gh(f'repos/{a.org}/{PLATFORM_REPO}/git/ref/tags/v1', read=True)
     except RuntimeError:
         pass
-    if repo['visibility'] == 'public':
+    if repo['visibility'] == 'public' and not args.personal:   # en modo prueba es público a propósito
         print('AVISO: el repo de plataforma es público. Hazlo privado (o interno).')
     if args.personal:
         print('\nModo prueba (--personal): sin reglas de organización.')
@@ -190,13 +197,71 @@ def cmd_bootstrap(args):
           '\nrepo público TU-ORG/.github con org-dot-github/ (plantillas de PR e issue).')
 
 
+def platform_files(org, personal):
+    """Archivos de plataforma que lleva todo repo de código: (ruta, texto, mensaje del commit)."""
+    content = (ROOT / 'caller' / 'agentic-ci.yml').read_text(encoding='utf-8')
+    if 'TU-ORG' in content:
+        sys.exit('Ejecuta antes: platform_admin.py configure --org ' + org)
+    files = [('.github/workflows/agentic-ci.yml', content, 'ci: activa el pipeline central de plataforma')]
+    if personal:   # en una organización la plantilla de PR viene del repo TU-ORG/.github
+        template = (ROOT / 'org-dot-github' / '.github' / 'pull_request_template.md').read_text(encoding='utf-8')
+        files.append(('.github/pull_request_template.md', template, 'docs: plantilla de PR del pipeline'))
+    return files
+
+
+def create_repo(a, name, personal):
+    """Crea el repo vacío (sin README: el primer commit lo pone plataforma). Personal: público; organización: privado."""
+    if personal:
+        login = a.gh('user', read=True)['login']
+        if login.lower() != a.org.lower():
+            sys.exit(f'Con --personal, --org debe ser tu usuario ({login}).')
+        path, data = 'user/repos', {'name': name, 'private': False, 'auto_init': False}
+    else:
+        path, data = f'orgs/{a.org}/repos', {'name': name, 'visibility': 'private', 'auto_init': False}
+    created = a.gh(path, '--method', 'POST', data={**data, 'delete_branch_on_merge': True})
+    return created or {'visibility': 'public' if personal else 'private', 'default_branch': 'main'}
+
+
+def seed_empty_repo(a, name, default, files, develop):
+    """Repo vacío: los archivos de plataforma entran como primer commit directo (sin PR, sin código del
+    proyecto) ANTES de activar las reglas, que después exigirían PR. Opcionalmente crea develop."""
+    for path, text, message in files:
+        a.gh(f'repos/{a.org}/{name}/contents/{path}', '--method', 'PUT', data={
+            # sin 'branch': en un repo vacío el primer archivo crea la rama por defecto
+            'message': message, 'content': base64.b64encode(text.encode()).decode()})
+    if not develop:
+        return default
+    if a.apply:
+        sha = a.gh(f'repos/{a.org}/{name}/git/ref/heads/{default}', read=True)['object']['sha']
+    else:
+        sha = '<sha del primer commit>'
+    a.gh(f'repos/{a.org}/{name}/git/refs', '--method', 'POST', data={'ref': 'refs/heads/develop', 'sha': sha})
+    a.gh(f'repos/{a.org}/{name}', '--method', 'PATCH', data={'default_branch': 'develop'})
+    return 'develop'
+
+
 def cmd_enroll(args):
     a = Admin(args.org, args.apply)
     name = args.repo
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', name):
         sys.exit('Nombre de repo no válido')
-    target = a.gh(f'repos/{a.org}/{name}', read=True)
-    print(f'Repo: {a.org}/{name} ({target["visibility"]})   {"APLICANDO" if a.apply else "simulación (añade --apply)"}')
+    files = platform_files(a.org, args.personal)
+    mode = "APLICANDO" if a.apply else "simulación (añade --apply)"
+    if a.exists(f'repos/{a.org}/{name}'):
+        target = a.gh(f'repos/{a.org}/{name}', read=True)
+        print(f'Repo: {a.org}/{name} ({target["visibility"]})   {mode}')
+        empty = not a.gh(f'repos/{a.org}/{name}/branches?per_page=1', read=True)
+    else:
+        print(f'Repo: {a.org}/{name} (no existe)   {mode}')
+        print('\n0) Crear el repo vacío')
+        target, empty = create_repo(a, name, args.personal), True
+    default = target['default_branch']
+    if empty and not args.enterprise:
+        print(f'\n0b) Repo vacío: primer commit con los archivos de plataforma en {default} (sin PR)'
+              + (' y rama develop por defecto' if not args.no_develop else ''))
+        seed = files + [('AGENTS.md', (ROOT / 'caller' / 'AGENTS.md').read_text(encoding='utf-8'),
+                         'docs: AGENTS.md inicial para agentes de IA')]
+        default = seed_empty_repo(a, name, default, seed, develop=not args.no_develop)
     if args.personal:
         print(f'\n1) Reglas de rama en el propio repo (modo prueba, {args.approvals} aprobación(es))')
         for f in ('org-develop.json', 'org-main.json'):
@@ -225,16 +290,12 @@ def cmd_enroll(args):
     if args.enterprise:
         print('\n5) Enterprise: no hace falta archivo en el repo (lo exige el ruleset plataforma-pipeline-requerido).')
         return
-    print('\n5) PR con el archivo llamador (.github/workflows/agentic-ci.yml)')
+    if empty:
+        print(f'\n5) Archivo llamador: ya está en {default} desde el primer commit.')
+        print(f'   Listo. Los desarrolladores clonan, crean su rama desde {default} y abren su PR: el pipeline salta solo.')
+        return
+    print('\n5) PR con el archivo llamador (.github/workflows/agentic-ci.yml): el repo ya tiene código')
     branch = 'platform/agentic-ci'
-    default = target['default_branch']
-    content = (ROOT / 'caller' / 'agentic-ci.yml').read_text(encoding='utf-8')
-    if 'TU-ORG' in content:
-        sys.exit('Ejecuta antes: platform_admin.py configure --org ' + a.org)
-    files = [('.github/workflows/agentic-ci.yml', content, 'ci: activa el pipeline central de plataforma')]
-    if args.personal:
-        template = (ROOT / 'org-dot-github' / '.github' / 'pull_request_template.md').read_text(encoding='utf-8')
-        files.append(('.github/pull_request_template.md', template, 'docs: plantilla de PR del pipeline'))
     # Se puede repetir sin miedo: reutiliza rama, archivos y PR si ya existen
     if all(a.file(name, path, default)[1] == text for path, text, _ in files):
         print(f'   Ya instalado en {default}: no hace falta PR.')
@@ -272,6 +333,9 @@ def finish(default):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):     # tildes legibles en la consola de Windows (cp1252)
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
     c = sub.add_parser('configure'); c.add_argument('--org', required=True)
@@ -284,6 +348,8 @@ def main():
         p.add_argument('--apply', action='store_true')
         if n == 'enroll':
             p.add_argument('--repo', required=True)
+            p.add_argument('--no-develop', action='store_true',
+                           help='Repo nuevo: trabajar solo con main (por defecto se crea develop como rama por defecto)')
     args = ap.parse_args()
     try:
         {'configure': cmd_configure, 'bootstrap': cmd_bootstrap, 'enroll': cmd_enroll}[args.cmd](args)
