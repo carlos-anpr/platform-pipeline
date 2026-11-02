@@ -1,0 +1,42 @@
+name: Tarea (persona o agente)
+description: Una tarea acotada, con criterios de aceptación comprobables
+title: "[tarea] "
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexto
+      description: Qué problema hay, cómo se comporta hoy y cómo debería comportarse.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Criterios de aceptación
+      description: Uno por línea, con identificador y algo comprobable por un test.
+      placeholder: |
+        - [ ] AC-1: slugify('Hola Mundo') devuelve 'hola-mundo'
+        - [ ] AC-2: slugify('') devuelve ''
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Fuera de alcance
+      description: Lo que NO hay que tocar. Un agente nunca cambia .github/, CODEOWNERS ni reglas.
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Riesgo
+      options: [bajo, medio, alto]
+    validations:
+      required: true
+  - type: checkboxes
+    id: approval
+    attributes:
+      label: Revisión humana del alcance
+      options:
+        - label: Una persona revisa el alcance antes de asignar la tarea a un agente.
+          required: true

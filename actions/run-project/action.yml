@@ -1,0 +1,42 @@
+name: Ejecutar el proyecto (plataforma)
+description: Detecta Node o Python, instala, ejecuta lint, build y tests con cobertura, o el smoke test.
+inputs:
+  task: {description: "setup | test | smoke", required: true}
+  node-version: {description: Versión de Node, default: "24"}
+  python-version: {description: Versión de Python, default: "3.13"}
+  cmd-install: {description: Comando de instalación (opcional), default: ""}
+  cmd-lint: {description: Comando de lint (opcional), default: ""}
+  cmd-build: {description: Comando de build (opcional), default: ""}
+  cmd-test: {description: Tests con cobertura (opcional), default: ""}
+  smoke-start: {description: Comando de arranque (opcional), default: ""}
+  smoke-url: {description: URL que debe responder, default: "http://127.0.0.1:3000/health"}
+  smoke-port: {description: Puerto, default: "3000"}
+outputs:
+  stack: {description: "node | python | none", value: "${{ steps.detect.outputs.stack }}"}
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/run-project.sh" detect
+    - if: ${{ steps.detect.outputs.stack == 'node' }}
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
+    - if: ${{ steps.detect.outputs.stack == 'python' }}
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: ${{ inputs.python-version }}
+    - shell: bash
+      env:
+        STACK: ${{ steps.detect.outputs.stack }}
+        CMD_INSTALL: ${{ inputs.cmd-install }}
+        CMD_LINT: ${{ inputs.cmd-lint }}
+        CMD_BUILD: ${{ inputs.cmd-build }}
+        CMD_TEST: ${{ inputs.cmd-test }}
+        SMOKE_START: ${{ inputs.smoke-start }}
+        SMOKE_URL: ${{ inputs.smoke-url }}
+        PORT: ${{ inputs.smoke-port }}
+        TASK: ${{ inputs.task }}
+      run: bash "$GITHUB_ACTION_PATH/run-project.sh" "$TASK"

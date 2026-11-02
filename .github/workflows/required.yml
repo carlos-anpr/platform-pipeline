@@ -1,0 +1,20 @@
+# Solo GitHub Enterprise Cloud · Entrada del pipeline como "required workflow".
+# El ruleset de organización rulesets/org-required-workflow.json obliga a que este archivo pase
+# en los PRs de los repos de código, que NO necesitan ningún archivo propio.
+# En el repo de plataforma no hace nada (tiene su propio self-test.yml).
+name: Agentic CI (requerido por la organización)
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  merge_group:
+permissions: {}
+jobs:
+  pipeline:
+    if: ${{ github.repository != 'carlos-anpr/platform-pipeline' }}
+    uses: carlos-anpr/platform-pipeline/.github/workflows/agentic-ci.yml@v1
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    secrets:
+      RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}

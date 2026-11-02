@@ -1,0 +1,25 @@
+# GESTIONADO POR PLATAFORMA (carlos-anpr/platform-pipeline). No lo edites: los cambios en
+# .github/workflows/ los bloquea la organización para todos salvo los administradores.
+# Lo instala el administrador con scripts/platform_admin.py enroll. Toda la lógica y la configuración
+# de este repo están en el repo de plataforma (repos/<este-repo>.json).
+name: Agentic CI
+on:
+  pull_request:
+    # edited: cambiar el título o la descripción vuelve a comprobar commits, acceptance y provenance
+    types: [opened, synchronize, reopened, edited]
+  merge_group:
+  push:
+    branches: [main, develop]
+permissions: {}
+concurrency:
+  group: agentic-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  pipeline:
+    uses: carlos-anpr/platform-pipeline/.github/workflows/agentic-ci.yml@v1
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    secrets:
+      RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}

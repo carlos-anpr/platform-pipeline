@@ -1,0 +1,62 @@
+# Releases de los repos SIN archivo llamador (GitHub Enterprise Cloud con workflow requerido).
+# El workflow requerido solo se ejecuta en PRs, así que nada escucha los push a main de esos repos:
+# este workflow del repo central recorre los repos dados de alta y prepara su PR de release
+# (al mergearlo, crea el tag y la GitHub Release). Lo que llega a main ya pasó ci-gate en su PR.
+# En plan Team no hace nada: los repos con archivo llamador publican desde el job "release".
+# Requiere el secreto RELEASE_PLEASE_TOKEN con, además de Contents y Pull requests (lectura y
+# escritura) en los repos de código, el permiso de organización "Custom properties: read".
+name: Releases centrales
+on:
+  schedule:
+    - cron: '17 * * * *'      # cada hora
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: Solo este repo (vacío = todos los dados de alta)
+        default: ''
+permissions: {}
+concurrency:
+  group: release-central
+  cancel-in-progress: false
+jobs:
+  repos:
+    name: repos sin archivo llamador
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: v1             # el script y repos/*.json publicados, no main a medias
+      - id: list
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          ORG: ${{ github.repository_owner }}
+          ONLY: ${{ inputs.repo }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "::notice::Sin RELEASE_PLEASE_TOKEN no hay releases."; echo "matrix=[]" >> "$GITHUB_OUTPUT"; exit 0; fi
+          python3 scripts/release_targets.py >> "$GITHUB_OUTPUT"
+
+  release:
+    name: release ${{ matrix.repo }}
+    needs: repos
+    if: ${{ needs.repos.outputs.matrix != '' && needs.repos.outputs.matrix != '[]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: {}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include: ${{ fromJSON(needs.repos.outputs.matrix) }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          repo-url: ${{ matrix.repo }}
+          target-branch: main
+          release-type: ${{ matrix.release_type }}

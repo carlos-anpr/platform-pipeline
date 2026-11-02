@@ -1,0 +1,115 @@
+{
+  "name": "plataforma-develop",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "repository_property": {
+      "include": [
+        {
+          "name": "pipeline",
+          "property_values": [
+            "agentica"
+          ],
+          "source": "custom"
+        }
+      ],
+      "exclude": []
+    },
+    "ref_name": {
+      "include": [
+        "refs/heads/develop"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "require_code_owner_review": false,
+        "dismiss_stale_reviews_on_push": true,
+        "require_last_push_approval": true,
+        "required_review_thread_resolution": true,
+        "allowed_merge_methods": [
+          "squash",
+          "merge"
+        ],
+        "required_reviewers": [
+          {
+            "reviewer": {
+              "id": 0,
+              "type": "Team"
+            },
+            "file_patterns": [
+              "**"
+            ],
+            "minimum_approvals": 1,
+            "$team": "tech-leads"
+          },
+          {
+            "reviewer": {
+              "id": 0,
+              "type": "Team"
+            },
+            "file_patterns": [
+              ".github/**",
+              "AGENTS.md",
+              "CLAUDE.md",
+              "**/vitest.config.*",
+              "**/jest.config.*",
+              "**/.nycrc*",
+              "**/.c8rc*",
+              "**/.coveragerc",
+              "**/codecov.yml",
+              "**/.eslintrc*",
+              "**/eslint.config.*",
+              "**/.eslintignore",
+              "**/biome.json",
+              "**/biome.jsonc",
+              "**/.prettierrc*",
+              "**/prettier.config.*",
+              "**/.prettierignore",
+              "**/ruff.toml",
+              "**/.ruff.toml",
+              "**/.flake8",
+              "**/.pylintrc",
+              "**/mypy.ini",
+              "**/.mocharc*",
+              "**/pytest.ini",
+              "**/tox.ini",
+              "**/setup.cfg",
+              "**/.gitleaks.toml",
+              "**/.gitleaksignore",
+              "**/.semgrepignore",
+              "**/osv-scanner.toml",
+              "**/.trivyignore"
+            ],
+            "minimum_approvals": 1,
+            "$team": "platform"
+          }
+        ]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "pipeline / ci-gate",
+            "integration_id": 15368
+          }
+        ]
+      }
+    }
+  ]
+}

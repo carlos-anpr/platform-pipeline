@@ -1,0 +1,10 @@
+{
+  "$comment": "Ejemplo: la app de práctica de la guía (examples/mi-app). Solo lo que difiere de _default.json.",
+  "exceptions": [
+    {
+      "path": "src/server.js",
+      "rule": "diff-coverage",
+      "reason": "el arranque del servidor no lo carga ningún test unitario; lo cubre el job smoke"
+    }
+  ]
+}

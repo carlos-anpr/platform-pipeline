@@ -1,0 +1,13 @@
+name: Procedencia del PR (plataforma)
+description: "check: el PR declara qué agente de IA se usó y no contradice los commits. label: etiqueta ai:*."
+inputs:
+  mode: {description: "check | label", required: true}
+  token: {description: Token (lectura para check; escritura de etiquetas para label), required: true}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        MODE: ${{ inputs.mode }}
+      run: python3 "$GITHUB_ACTION_PATH/pr-provenance.py" "$MODE"

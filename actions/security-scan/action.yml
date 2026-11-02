@@ -1,0 +1,38 @@
+name: Seguridad (plataforma)
+description: gitleaks (secretos), Semgrep CE (código), OSV-Scanner (dependencias) y zizmor (workflows), con versiones fijadas y verificadas.
+runs:
+  using: composite
+  steps:
+    - name: Instalar escáneres verificados
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/install-tools.py"
+    - name: Secretos en el historial (gitleaks, configuración central)
+      shell: bash
+      # Configuración central, sin .gitleaksignore del repo y sin comentarios gitleaks:allow:
+      # un PR no puede esconder un secreto. Los falsos positivos se aprueban en gitleaks.toml (este repo).
+      run: |
+        find . -name .gitleaksignore -not -path './.git/*' -delete
+        GITLEAKS_CONFIG="$GITHUB_ACTION_PATH/gitleaks.toml" gitleaks git --redact --ignore-gitleaks-allow --exit-code 1 .
+    - name: Análisis estático del código (Semgrep CE, open source, sin cuenta ni token)
+      shell: bash
+      run: |
+        docker run --rm --cap-drop ALL --security-opt no-new-privileges --read-only \
+          --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+          --volume "$GITHUB_WORKSPACE:/src:ro" --workdir /src \
+          --env HOME=/tmp --env SEMGREP_SEND_METRICS=off --env SEMGREP_ENABLE_VERSION_CHECK=0 \
+          --entrypoint semgrep \
+          semgrep/semgrep:1.183.0@sha256:2e45517a85e13a9cca14a2a00df6bb48affd66b8ebfae1b0991cd57578362fb0 \
+          scan --config p/default --error --metrics off --disable-version-check
+    - name: Dependencias con vulnerabilidades conocidas (OSV-Scanner)
+      shell: bash
+      run: |
+        set +e
+        osv-scanner scan source -r --no-ignore .   # --no-ignore: un .gitignore no esconde lockfiles
+        code=$?
+        if [ "$code" -eq 128 ]; then echo "::notice::No hay lockfiles que analizar: OSV-Scanner no aplica."; exit 0; fi
+        exit "$code"
+    - name: Seguridad de los workflows del repo (zizmor)
+      shell: bash
+      run: |
+        if [ -d .github/workflows ]; then zizmor --offline --min-severity medium --config "$GITHUB_ACTION_PATH/zizmor.yml" .github/workflows
+        else echo "Sin workflows propios en el repo."; fi

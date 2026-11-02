@@ -1,0 +1,236 @@
+# PIPELINE CENTRAL · carlos-anpr/platform-pipeline · solo lo cambian los administradores
+#
+# Lo ejecutan TODOS los repos de código, sin configuración en ellos:
+#   - Plan Team: mediante caller/agentic-ci.yml, que instala el administrador (platform_admin.py enroll)
+#     y que los devs no pueden modificar (ruleset de push de la organización).
+#   - Enterprise Cloud: mediante required.yml, exigido por la organización (rulesets/org-required-workflow.json).
+# Lo específico de cada repo (cobertura mínima, excepciones, comandos especiales) está en repos/<repo>.json.
+# Las acciones se referencian con @v1: publicar una versión = mover la etiqueta v1 (ver README).
+name: Agentic CI
+on:
+  workflow_call:          # lo llaman caller/agentic-ci.yml (Team) y required.yml (Enterprise)
+    secrets:
+      RELEASE_PLEASE_TOKEN:
+        description: Token para abrir el PR de release (secreto de organización). Sin él no se publican releases.
+        required: false
+permissions: {}
+env:
+  BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+jobs:
+  # 1 · El título del PR es el mensaje del commit (squash) y release-please lo lee
+  commits:
+    name: commits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: El título del PR sigue Conventional Commits
+        env:
+          EVENT: ${{ github.event_name }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then echo "Evento $EVENT: el título ya se validó en el PR."; exit 0; fi
+          re='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([A-Za-z0-9._/-]+\))?!?: .{3,}'
+          if printf '%s' "$TITLE" | grep -Eq "$re"; then echo "OK: $TITLE"; exit 0; fi
+          echo "::error::El título del PR debe seguir Conventional Commits, p. ej. 'feat: añade slugify' o 'fix(api): corrige el 404'. Título actual: $TITLE"
+          exit 1
+
+  # 2 · Lint, build, tests con cobertura (detectados sin configuración) y cobertura del diff
+  build-test:
+    name: build-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: cfg
+        uses: carlos-anpr/platform-pipeline/actions/repo-config@v1
+      - uses: carlos-anpr/platform-pipeline/actions/run-project@v1
+        with:
+          task: test
+          node-version: ${{ steps.cfg.outputs.node-version }}
+          python-version: ${{ steps.cfg.outputs.python-version }}
+          cmd-install: ${{ steps.cfg.outputs.cmd-install }}
+          cmd-build: ${{ steps.cfg.outputs.cmd-build }}
+          cmd-test: ${{ steps.cfg.outputs.cmd-test }}
+      - uses: carlos-anpr/platform-pipeline/actions/diff-coverage@v1
+        with:
+          base: ${{ env.BASE }}
+          allow-file: ${{ steps.cfg.outputs.allow-file }}
+          min: ${{ steps.cfg.outputs.coverage-min }}
+
+  # 2b · Calidad del código cambiado: lint, formato, duplicación, complejidad, tamaño, dependencias, stubs
+  quality:
+    name: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: cfg
+        uses: carlos-anpr/platform-pipeline/actions/repo-config@v1
+      - uses: carlos-anpr/platform-pipeline/actions/quality@v1
+        with:
+          base: ${{ env.BASE }}
+          allow-file: ${{ steps.cfg.outputs.allow-file }}
+          config: ${{ steps.cfg.outputs.quality }}
+          node-version: ${{ steps.cfg.outputs.node-version }}
+          python-version: ${{ steps.cfg.outputs.python-version }}
+          cmd-install: ${{ steps.cfg.outputs.cmd-install }}
+          cmd-lint: ${{ steps.cfg.outputs.cmd-lint }}
+
+  # 3 · Tests y comprobaciones no debilitados
+  guardrails:
+    name: guardrails
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: cfg
+        uses: carlos-anpr/platform-pipeline/actions/repo-config@v1
+      - uses: carlos-anpr/platform-pipeline/actions/guardrails@v1
+        with:
+          base: ${{ env.BASE }}
+          allow-file: ${{ steps.cfg.outputs.allow-file }}
+
+  # 4 · Cada criterio AC-n tiene su test
+  acceptance:
+    name: acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: carlos-anpr/platform-pipeline/actions/acceptance@v1
+        with:
+          token: ${{ github.token }}
+
+  # 5 · El PR declara qué agente de IA se usó (coherente con los commits)
+  provenance:
+    name: provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read        # comparar el back-merge con main
+      pull-requests: read
+    steps:
+      - uses: carlos-anpr/platform-pipeline/actions/provenance@v1
+        with:
+          mode: check
+          token: ${{ github.token }}
+
+  # 6 · Secretos, dependencias y workflows
+  security:
+    name: security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: carlos-anpr/platform-pipeline/actions/security-scan@v1
+
+  # 7 · La aplicación arranca y responde
+  smoke:
+    name: smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: cfg
+        uses: carlos-anpr/platform-pipeline/actions/repo-config@v1
+      - uses: carlos-anpr/platform-pipeline/actions/run-project@v1
+        with:
+          task: smoke
+          node-version: ${{ steps.cfg.outputs.node-version }}
+          python-version: ${{ steps.cfg.outputs.python-version }}
+          cmd-install: ${{ steps.cfg.outputs.cmd-install }}
+          cmd-build: ${{ steps.cfg.outputs.cmd-build }}
+          smoke-start: ${{ steps.cfg.outputs.smoke-start }}
+          smoke-url: ${{ steps.cfg.outputs.smoke-url }}
+          smoke-port: ${{ steps.cfg.outputs.smoke-port }}
+
+  # Etiquetas ai:* para medir (no bloquea; no ejecuta código del PR)
+  labels:
+    name: labels
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: carlos-anpr/platform-pipeline/actions/provenance@v1
+        with:
+          mode: label
+          token: ${{ github.token }}
+
+  # Release automático al cambiar main: versión semver, CHANGELOG, tag y GitHub Release (no bloquea)
+  release:
+    name: release
+    needs: [ci-gate]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.ci-gate.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - id: cfg
+        uses: carlos-anpr/platform-pipeline/actions/repo-config@v1
+      - id: token
+        name: ¿Hay token de release?
+        env:
+          HAS_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN != '' }}
+          RELEASE_TYPE: ${{ steps.cfg.outputs.release-type }}
+        run: |
+          if [ "$RELEASE_TYPE" = "none" ]; then echo "Releases desactivados para este repo (release_type: none)."; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$HAS_TOKEN" != "true" ]; then echo "::notice::Sin el secreto RELEASE_PLEASE_TOKEN no se publican releases (guía, paso 16)."; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.token.outputs.ok == 'true' }}
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          target-branch: main
+          release-type: ${{ steps.cfg.outputs.release-type }}
+
+  # El check que exigen las reglas de la organización
+  ci-gate:
+    name: ci-gate
+    if: ${{ always() }}
+    needs: [commits, build-test, quality, guardrails, acceptance, provenance, security, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Todos los jobs deben terminar en success (fallido, cancelado u omitido = rojo)
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "Resultados: $RESULTS"
+          echo "$RESULTS" | jq -e 'all(. == "success")'

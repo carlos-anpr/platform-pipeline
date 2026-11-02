@@ -1,0 +1,37 @@
+{
+  "name": "plataforma-workflows-bloqueados",
+  "target": "push",
+  "enforcement": "active",
+  "bypass_actors": [
+    {
+      "actor_type": "OrganizationAdmin",
+      "bypass_mode": "always",
+      "actor_id": 1
+    }
+  ],
+  "conditions": {
+    "repository_property": {
+      "include": [
+        {
+          "name": "pipeline",
+          "property_values": [
+            "agentica"
+          ],
+          "source": "custom"
+        }
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "file_path_restriction",
+      "parameters": {
+        "restricted_file_paths": [
+          ".github/workflows/**",
+          ".github/actions/**"
+        ]
+      }
+    }
+  ]
+}

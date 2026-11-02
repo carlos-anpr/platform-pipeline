@@ -1,0 +1,11 @@
+name: Criterio → test (plataforma)
+description: Cada AC-n de la issue enlazada o del PR tiene un test que lo nombra; un PR feat/fix debe declarar criterios.
+inputs:
+  token: {description: Token con lectura de issues y PRs, required: true}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: python3 "$GITHUB_ACTION_PATH/check-acceptance.py"

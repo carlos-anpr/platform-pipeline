@@ -1,0 +1,13 @@
+name: Guardarraíles del diff (plataforma)
+description: Falla si el cambio desactiva tests, borra aserciones, añade supresiones o rebaja umbrales de cobertura.
+inputs:
+  base: {description: Commit base, required: true}
+  allow-file: {description: Excepciones (repos/<repo>.json), required: true}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+        ALLOW: ${{ inputs.allow-file }}
+      run: python3 "$GITHUB_ACTION_PATH/check-diff-guardrails.py" --base "$BASE" --allow-file "$ALLOW"

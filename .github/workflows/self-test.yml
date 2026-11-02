@@ -1,0 +1,42 @@
+# CI del propio repo de plataforma: antes de mover la etiqueta v1, todo esto debe estar en verde.
+name: Self-test
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions: {}
+jobs:
+  scripts:
+    name: tests de los scripts y de la configuración
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Tests unitarios de los checks
+        run: python3 -m unittest discover -s tests -v
+      - name: Toda la configuración de repos/ es válida
+        run: |
+          for f in repos/*.json; do
+            python3 -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" "$f" || { echo "::error file=$f::JSON no válido"; exit 1; }
+          done
+          for f in rulesets/*.json; do
+            python3 -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" "$f" || { echo "::error file=$f::JSON no válido"; exit 1; }
+          done
+  workflows:
+    name: seguridad de los workflows (zizmor)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Instalar escáneres verificados
+        run: python3 actions/security-scan/install-tools.py
+      - name: zizmor sobre workflows, acciones y archivo llamador
+        run: zizmor --offline --min-severity low --config actions/security-scan/zizmor.yml .github/workflows actions caller

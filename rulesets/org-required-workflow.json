@@ -1,0 +1,43 @@
+{
+  "$comment": "SOLO GitHub Enterprise Cloud. Hace innecesario caller/agentic-ci.yml: la organización exige que required.yml del repo de plataforma pase en cada PR. repository_id se rellena con scripts/platform_admin.py bootstrap --enterprise.",
+  "name": "plataforma-pipeline-requerido",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "repository_property": {
+      "include": [
+        {
+          "name": "pipeline",
+          "property_values": [
+            "agentica"
+          ],
+          "source": "custom"
+        }
+      ],
+      "exclude": []
+    },
+    "ref_name": {
+      "include": [
+        "refs/heads/main",
+        "refs/heads/develop"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "workflows",
+      "parameters": {
+        "do_not_enforce_on_create": false,
+        "workflows": [
+          {
+            "path": ".github/workflows/required.yml",
+            "repository_id": 0,
+            "ref": "refs/tags/v1"
+          }
+        ]
+      }
+    }
+  ]
+}

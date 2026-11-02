@@ -1,0 +1,86 @@
+{
+  "$comment": "Reglas del PROPIO repo de plataforma: main solo por PR con self-test en verde; las etiquetas v* (las versiones que usan todos los repos) solo las crean o mueven los administradores. Aprobaciones en 0 y sin \"aprobación del último push\" porque con un único administrador no podrías aprobar tus propios PRs; si sois dos o más, sube required_approving_review_count a 1 y require_last_push_approval a true.",
+  "branch": {
+    "name": "plataforma-repo-main",
+    "target": "branch",
+    "enforcement": "active",
+    "bypass_actors": [],
+    "conditions": {
+      "ref_name": {
+        "include": [
+          "~DEFAULT_BRANCH"
+        ],
+        "exclude": []
+      }
+    },
+    "rules": [
+      {
+        "type": "deletion"
+      },
+      {
+        "type": "non_fast_forward"
+      },
+      {
+        "type": "pull_request",
+        "parameters": {
+          "required_approving_review_count": 0,
+          "require_code_owner_review": false,
+          "dismiss_stale_reviews_on_push": true,
+          "require_last_push_approval": false,
+          "required_review_thread_resolution": true,
+          "allowed_merge_methods": [
+            "squash"
+          ]
+        }
+      },
+      {
+        "type": "required_status_checks",
+        "parameters": {
+          "strict_required_status_checks_policy": true,
+          "do_not_enforce_on_create": false,
+          "required_status_checks": [
+            {
+              "context": "tests de los scripts y de la configuración",
+              "integration_id": 15368
+            },
+            {
+              "context": "seguridad de los workflows (zizmor)",
+              "integration_id": 15368
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "tags": {
+    "name": "plataforma-versiones",
+    "target": "tag",
+    "enforcement": "active",
+    "bypass_actors": [
+      {
+        "actor_id": 1,
+        "actor_type": "OrganizationAdmin",
+        "bypass_mode": "always"
+      }
+    ],
+    "conditions": {
+      "ref_name": {
+        "include": [
+          "refs/tags/v*"
+        ],
+        "exclude": []
+      }
+    },
+    "rules": [
+      {
+        "type": "creation"
+      },
+      {
+        "type": "update"
+      },
+      {
+        "type": "deletion"
+      }
+    ]
+  }
+}

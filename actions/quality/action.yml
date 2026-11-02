@@ -1,0 +1,55 @@
+name: Calidad del código cambiado (plataforma)
+description: "7 reglas sobre lo que cambia el PR: lint, formato, duplicación, complejidad, tamaño, dependencias nuevas y código sin implementar."
+inputs:
+  base: {description: Commit base, required: true}
+  allow-file: {description: Excepciones (repos/<repo>.json), required: true}
+  config: {description: "Umbrales en JSON (repos/<repo>.json -> quality)", default: "{}"}
+  node-version: {description: Versión de Node, default: "24"}
+  python-version: {description: Versión de Python, default: "3.13"}
+  cmd-install: {description: Instalación especial (opcional), default: ""}
+  cmd-lint: {description: Linter especial (opcional), default: ""}
+runs:
+  using: composite
+  steps:
+    - name: Herramientas de calidad con versión fijada (Ruff, Black, lizard)
+      shell: bash
+      run: |
+        python3 -m venv "$RUNNER_TEMP/quality-venv"
+        "$RUNNER_TEMP/quality-venv/bin/pip" install --quiet --disable-pip-version-check ruff==0.17.1 black==26.10.1 lizard==1.24.1
+    # 1) Antes de instalar o ejecutar NADA del proyecto: duplicación, complejidad, tamaño, dependencias nuevas y stubs.
+    #    Así ni el código ni las dependencias del PR pueden alterar estos resultados.
+    - id: static
+      name: Reglas estáticas (sin ejecutar código del proyecto)
+      shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+        ALLOW: ${{ inputs.allow-file }}
+        CONFIG: ${{ inputs.config }}
+      run: |
+        export QUALITY_BIN="$RUNNER_TEMP/quality-venv/bin"
+        python3 "$GITHUB_ACTION_PATH/check-quality.py" --rules static --base "$BASE" --allow-file "$ALLOW" --config "$CONFIG"
+    # 2) Instalación del proyecto y reglas que la necesitan (lint y formato del propio proyecto).
+    #    Si hay dependencias nuevas rechazadas, no se instala nada: primero hay que resolverlas.
+    - if: ${{ steps.static.outputs.deps_ok == 'false' }}
+      shell: bash
+      run: echo "::notice title=Calidad::Lint y formato no se ejecutan hasta resolver las dependencias nuevas rechazadas (no se instalan paquetes sin verificar)."
+    - id: project
+      if: ${{ !cancelled() && steps.static.outputs.deps_ok != 'false' }}
+      uses: carlos-anpr/platform-pipeline/actions/run-project@v1
+      with:
+        task: setup
+        node-version: ${{ inputs.node-version }}
+        python-version: ${{ inputs.python-version }}
+        cmd-install: ${{ inputs.cmd-install }}
+    - name: Lint y formato
+      if: ${{ !cancelled() && steps.static.outputs.deps_ok != 'false' }}
+      shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+        ALLOW: ${{ inputs.allow-file }}
+        CONFIG: ${{ inputs.config }}
+        CMD_LINT: ${{ inputs.cmd-lint }}
+        STACK: ${{ steps.project.outputs.stack }}
+      run: |
+        export QUALITY_BIN="$RUNNER_TEMP/quality-venv/bin"
+        python3 "$GITHUB_ACTION_PATH/check-quality.py" --rules project --base "$BASE" --allow-file "$ALLOW" --config "$CONFIG"

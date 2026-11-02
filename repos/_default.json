@@ -1,0 +1,28 @@
+{
+  "$comment": "Valores para TODOS los repos de código. Para un repo concreto crea repos/<nombre-del-repo>.json solo con lo que cambie. Los comandos vacíos significan 'detectar automáticamente' (Node: scripts de package.json; Python: pytest con cobertura). release_type: node | python | simple | none (none desactiva los releases del repo). quality: duplication_max (% de líneas cambiadas), complexity_max y complexity_mode (warn|block|off), format_required (falla si el proyecto no tiene formateador), pr_size_warn/pr_size_max (líneas), new_dependency_min_age_days.",
+  "node_version": "24",
+  "python_version": "3.13",
+  "coverage_min": 80,
+  "smoke": {
+    "url": "http://127.0.0.1:3000/health",
+    "start": "",
+    "port": "3000"
+  },
+  "commands": {
+    "install": "",
+    "lint": "",
+    "build": "",
+    "test": ""
+  },
+  "exceptions": [],
+  "release_type": "node",
+  "quality": {
+    "duplication_max": 3,
+    "complexity_max": 15,
+    "complexity_mode": "warn",
+    "format_required": false,
+    "pr_size_warn": 400,
+    "pr_size_max": 1500,
+    "new_dependency_min_age_days": 30
+  }
+}

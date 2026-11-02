@@ -1,0 +1,7 @@
+# Configuración CENTRAL de gitleaks: se usa en lugar de la .gitleaks.toml del repo.
+# Falsos positivos: añádelos aquí ([allowlist] con paths o regexes y un comentario con el repo y el motivo),
+# por PR a este repo y publicando v1. Ver https://github.com/gitleaks/gitleaks#configuration
+title = "platform-pipeline"
+
+[extend]
+useDefault = true

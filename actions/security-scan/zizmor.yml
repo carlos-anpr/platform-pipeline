@@ -1,0 +1,10 @@
+# Política de zizmor del pipeline central.
+# - Acciones de terceros: fijadas por SHA (hash-pin), siempre.
+# - Workflows y acciones de NUESTRO repo de plataforma: por etiqueta (v1). La etiqueta es la
+#   "versión publicada" y solo la mueven administradores (ruleset plataforma-versiones).
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "carlos-anpr/*": ref-pin
+        "*": hash-pin
