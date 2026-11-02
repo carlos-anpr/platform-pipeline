@@ -667,5 +667,23 @@ class EnrollTest(unittest.TestCase):
             self.run_enroll({('GET', 'repos/yo/nueva'): 404, ('GET', 'user'): {'login': 'otro'}})
 
 
+class SecurityScanTest(unittest.TestCase):
+    """Hallazgos de las pruebas reales (docs/13, 2026-11-02)."""
+    STEPS = (ACTIONS / 'security-scan' / 'action.yml').read_text(encoding='utf-8').split('\n    - name: ')[1:]
+
+    def step(self, word):
+        return next(s for s in self.STEPS if word in s.split('\n')[0])
+
+    def test_gitleaks_solo_lee_la_historia_del_pr(self):
+        # sin --log-opts, gitleaks lee todas las ramas: el secreto de otra rama ponía en rojo todos los PRs
+        self.assertIn('gitleaks git ', self.step('gitleaks'))
+        self.assertIn('--log-opts=HEAD', self.step('gitleaks'))
+
+    def test_un_escaner_que_falla_no_oculta_los_demas(self):
+        for word in ('Semgrep', 'OSV-Scanner', 'zizmor'):
+            with self.subTest(word):
+                self.assertIn('if: ${{ !cancelled() }}', self.step(word))
+
+
 if __name__ == '__main__':
     unittest.main()
