@@ -1,6 +1,7 @@
 name: Configuración del repo (plataforma)
 description: Lee repos/_default.json y repos/<repo>.json del repositorio de plataforma.
 outputs:
+  runner: {description: "Runner de build-test y smoke (ubuntu-24.04 o windows-2025)", value: "${{ steps.cfg.outputs.runner }}"}
   node-version: {description: Versión de Node, value: "${{ steps.cfg.outputs.node-version }}"}
   python-version: {description: Versión de Python, value: "${{ steps.cfg.outputs.python-version }}"}
   coverage-min: {description: Cobertura mínima del diff, value: "${{ steps.cfg.outputs.coverage-min }}"}
@@ -12,11 +13,14 @@ outputs:
   cmd-build: {description: Build, value: "${{ steps.cfg.outputs.cmd-build }}"}
   cmd-test: {description: Tests con cobertura, value: "${{ steps.cfg.outputs.cmd-test }}"}
   allow-file: {description: Excepciones de los guardarraíles, value: "${{ steps.cfg.outputs.allow-file }}"}
-  release-type: {description: "Tipo de release (node, python, simple, none)", value: "${{ steps.cfg.outputs.release-type }}"}
+  release-type: {description: "Tipo de release (node, python, rust, simple, none)", value: "${{ steps.cfg.outputs.release-type }}"}
   quality: {description: Umbrales de calidad en JSON, value: "${{ steps.cfg.outputs.quality }}"}
 runs:
   using: composite
   steps:
     - id: cfg
       shell: bash
-      run: python3 "$GITHUB_ACTION_PATH/repo_config.py"
+      # En los runners Windows no hay python3 (solo python)
+      run: |
+        if [ "$RUNNER_OS" = Windows ]; then PY=python; else PY=python3; fi
+        "$PY" "$GITHUB_ACTION_PATH/repo_config.py"

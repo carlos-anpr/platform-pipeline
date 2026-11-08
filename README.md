@@ -38,7 +38,7 @@ carlos-anpr/platform-pipeline   (PRIVADO · escritura: solo administradores)
 | `provenance` · exenciones | Solo Dependabot y Renovate, los PRs de release que tocan únicamente versión y CHANGELOG, los back-merge cuyo contenido ya está en `main` y `develop`→`main`. Un PR abierto por Copilot se declara solo |
 | **`ci-gate`** | Agrega los ocho. Es el único check que exigen las reglas: **`pipeline / ci-gate`** |
 | `labels` | (no bloquea) Etiqueta el PR con `ai:<agente>` para medir |
-| `release` | (no bloquea; solo al cambiar `main` y **con `ci-gate` en verde**) release-please abre o actualiza el PR de release con versión semver y CHANGELOG; al mergearlo crea el tag y la GitHub Release. Tipo por repo en `repos/<repo>.json` → `release_type` (`node`, `python`, `simple`, `none`). En Enterprise sin archivo llamador lo hace `release-central.yml` cada hora |
+| `release` | (no bloquea; solo al cambiar `main` y **con `ci-gate` en verde**) release-please abre o actualiza el PR de release con versión semver y CHANGELOG; al mergearlo crea el tag y la GitHub Release. Tipo por repo en `repos/<repo>.json` → `release_type` (`node`, `python`, `rust`, `simple`, `none`). En Enterprise sin archivo llamador lo hace `release-central.yml` cada hora |
 
 El pipeline se relanza también al **editar el título o la descripción** del PR, para que `commits`, `acceptance` y `provenance` comprueben siempre el texto actual.
 
@@ -69,6 +69,10 @@ Ejemplo de excepciones y umbrales para un repo:
   ]
 }
 ```
+
+### Proyectos Rust y apps de Windows
+
+Rust no se detecta solo: el repo declara `commands.lint` y `commands.test` en `repos/<repo>.json`. Los criterios `AC-n` se buscan en los nombres de las funciones `#[test]` de cualquier `.rs` (`fn ac1_…`, `fn test_ac2_…`; los comentarios y las cadenas no cuentan). La cobertura del diff todavía no mide `.rs`. Si la app solo compila en Windows, `runner: "windows-2025"` lleva `build-test` y `smoke` a Windows, y el lint puede seguir en Ubuntu comprobando el target sin enlazar (ejemplo: `repos/destello.json`).
 
 ### `policy-config`: la configuración de los checks también es una norma
 
@@ -179,6 +183,7 @@ Todo por PR **en este repo** y, tras el merge, publicando versión:
 | Un proyecto que no se detecta solo (Java, .NET, Go, monorepo…) | `repos/<repo>.json` → `commands: {install, lint, build, test}` (el de test debe dejar `coverage/lcov.info` o `coverage.xml`) |
 | Arranque distinto para el smoke test | `repos/<repo>.json` → `smoke: {start, url, port}` |
 | Tipo de release, o desactivarlos | `repos/<repo>.json` → `release_type` |
+| Una app que solo compila o se ejecuta en Windows (Win32, .NET Framework…) | `repos/<repo>.json` → `runner: "windows-2025"` (solo `build-test` y `smoke`; el resto de jobs sigue en Ubuntu) |
 | Cambiar un check o añadir uno | `actions/` y `.github/workflows/agentic-ci.yml` |
 | Cambiar quién aprueba qué, o los métodos de merge | `rulesets/*.json` + `bootstrap --apply` |
 

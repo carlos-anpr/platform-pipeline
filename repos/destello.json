@@ -1,0 +1,16 @@
+{
+  "$comment": "Destello: capturador de pantalla en Rust que solo compila y se ejecuta en Windows (Win32 + Direct2D). Los tests corren en windows-2025; el lint (clippy) corre en el job quality de Ubuntu comprobando el target de Windows, sin enlazar. Solo lo que difiere de _default.json.",
+  "runner": "windows-2025",
+  "commands": {
+    "lint": "rustup target add x86_64-pc-windows-msvc && cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings",
+    "test": "cargo test --locked"
+  },
+  "release_type": "rust",
+  "exceptions": [
+    {
+      "path": "src/*",
+      "rule": "pr-size",
+      "reason": "alta inicial de Destello: el código existente entra en un único PR (retirar después del alta)"
+    }
+  ]
+}
