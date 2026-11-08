@@ -5,12 +5,5 @@
     "lint": "rustup target add x86_64-pc-windows-msvc && cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings",
     "test": "cargo test --locked"
   },
-  "release_type": "rust",
-  "exceptions": [
-    {
-      "path": "src/*",
-      "rule": "pr-size",
-      "reason": "alta inicial de Destello: el código existente entra en un único PR (retirar después del alta)"
-    }
-  ]
+  "release_type": "rust"
 }
