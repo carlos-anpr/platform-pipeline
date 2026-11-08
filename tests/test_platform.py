@@ -298,6 +298,23 @@ class AcceptanceTest(unittest.TestCase):
         code, out = self.check('- [ ] AC-8: b\n', 'feat: x')
         self.assertEqual(code, 1, out)
 
+    def test_rust_tests_en_linea_cuentan_y_comentarios_o_cadenas_no(self):
+        self.r.write('src/clip.rs', "const Q: char = '\"';\n"
+                     '// #[test] fn ac9_comentario() {}\n'
+                     'const S: &str = "#[test] fn ac8_cadena() {}";\n'
+                     'const R: &str = r#"#[test] fn ac8_raw() {}"#;\n'
+                     '#[cfg(test)]\nmod tests {\n'
+                     '    #[test]\n    fn ac4_copia_png() {}\n'
+                     '    #[test]\n    #[ignore = "lento"]\n    fn test_ac5_otro() {}\n'
+                     '    #[tokio::test]\n    async fn ac_6_async() {}\n'
+                     '    fn ac7_no_es_test() {}\n}\n')
+        self.r.commit('rust')
+        self.assertEqual(self.check('- [ ] AC-4: a\n- [ ] AC-5: b\n- [ ] AC-6: c\n', 'feat: x')[0], 0)
+        for ac in ('AC-7', 'AC-8', 'AC-9'):
+            code, out = self.check(f'- [ ] {ac}: no\n', 'feat: x')
+            self.assertEqual(code, 1, out)
+            self.assertIn(ac, out)
+
     def test_ejemplo_en_comentario_de_plantilla_no_cuenta(self):
         code, _ = self.check("<!-- Ejemplo: - [ ] AC-9: x -->\n- [ ] AC-1: a\n", 'feat: x')
         self.assertEqual(code, 0)
@@ -382,6 +399,36 @@ class RepoConfigTest(unittest.TestCase):
         self.assertEqual(values['coverage-min'], '80.0')
         self.assertEqual(values['node-version'], '24')
         self.assertEqual(allow.strip(), '')
+
+    def test_runner_y_release_rust(self):
+        values, _ = self.run_cfg('otro-repo')
+        self.assertEqual(values['runner'], 'ubuntu-24.04')
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / '_default.json').write_text('{"release_type": "node"}', encoding='utf-8')
+            (root / 'x.json').write_text('{"runner": "windows-2025", "release_type": "rust"}', encoding='utf-8')
+            values, _ = self.run_cfg('x', root)
+            self.assertEqual(values['runner'], 'windows-2025')
+            self.assertEqual(values['release-type'], 'rust')
+            for bad in ('{"runner": "self-hosted"}', '{"runner": "windows-latest"}', '{"release_type": "cargo"}'):
+                (root / 'x.json').write_text(bad, encoding='utf-8')
+                with self.assertRaises(SystemExit, msg=bad):
+                    self.run_cfg('x', root)
+
+    def test_salidas_sin_retorno_de_carro(self):
+        # En un runner Windows, GITHUB_OUTPUT con \r\n dejaría "ubuntu-24.04\r" como valor
+        tmp = tempfile.TemporaryDirectory()
+        out = pathlib.Path(tmp.name) / 'out'
+        old = dict(os.environ)
+        os.environ.update({'GITHUB_REPOSITORY': 'org/mi-app', 'GITHUB_OUTPUT': str(out), 'RUNNER_TEMP': tmp.name})
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                repo_config.main()
+            self.assertNotIn(b'\r', out.read_bytes())
+            self.assertNotIn(b'\r', (pathlib.Path(tmp.name) / 'guardrails-allow').read_bytes())
+        finally:
+            os.environ.clear(); os.environ.update(old)
+            tmp.cleanup()
 
     def test_excepciones_del_repo(self):
         values, allow = self.run_cfg('mi-app')

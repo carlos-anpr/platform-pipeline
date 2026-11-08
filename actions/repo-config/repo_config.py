@@ -17,8 +17,10 @@ RULES = {'test-skip', 'test-only', 'suppression', 'coverage-ignore', 'assert-rem
          'new-dependency', 'stub', 'policy-config', '*'}
 QUALITY = {'duplication_max': (int, float), 'complexity_max': int, 'complexity_mode': str, 'format_required': bool,
            'pr_size_warn': int, 'pr_size_max': int, 'new_dependency_min_age_days': int}
-KEYS = {'node_version', 'python_version', 'coverage_min', 'smoke', 'commands', 'exceptions', 'release_type', 'quality', '$comment'}
-RELEASE_TYPES = {'node', 'python', 'simple', 'none'}
+KEYS = {'runner', 'node_version', 'python_version', 'coverage_min', 'smoke', 'commands', 'exceptions', 'release_type', 'quality', '$comment'}
+RELEASE_TYPES = {'node', 'python', 'rust', 'simple', 'none'}
+# Runners permitidos para build-test y smoke (los demás jobs no ejecutan el proyecto y siguen en Ubuntu)
+RUNNERS = {'ubuntu-24.04', 'windows-2025'}
 
 
 def load(path):
@@ -55,9 +57,12 @@ def main():
         if exc.get('rule') not in RULES or not exc.get('path') or not exc.get('reason'):
             sys.exit('::error title=Configuración de plataforma::Cada excepción necesita path, rule válida y reason')
         lines.append(f"{exc['path']}  {exc['rule']}  # {exc['reason']}")
-    allow.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    with open(allow, 'w', encoding='utf-8', newline='\n') as fh:
+        fh.write('\n'.join(lines) + '\n')
     if cfg.get('release_type', 'node') not in RELEASE_TYPES:
-        sys.exit('::error title=Configuración de plataforma::release_type debe ser node, python, simple o none')
+        sys.exit('::error title=Configuración de plataforma::release_type debe ser node, python, rust, simple o none')
+    if cfg.get('runner', 'ubuntu-24.04') not in RUNNERS:
+        sys.exit('::error title=Configuración de plataforma::runner debe ser ' + ' o '.join(sorted(RUNNERS)))
     quality = cfg.get('quality', {})
     for key, value in quality.items():
         if key not in QUALITY or not isinstance(value, QUALITY[key]) or isinstance(value, bool) != (QUALITY[key] is bool):
@@ -66,6 +71,7 @@ def main():
         sys.exit('::error title=Configuración de plataforma::quality.complexity_mode debe ser warn, block u off')
     smoke, cmds = cfg.get('smoke', {}), cfg.get('commands', {})
     out = {
+        'runner': cfg.get('runner', 'ubuntu-24.04'),
         'node-version': str(cfg.get('node_version', '24')),
         'python-version': str(cfg.get('python_version', '3.13')),
         'coverage-min': str(float(cfg.get('coverage_min', 80))),
@@ -80,7 +86,8 @@ def main():
         'release-type': cfg.get('release_type', 'node'),
         'quality': json.dumps(quality, separators=(',', ':')),
     }
-    with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+    # newline='\n': en un runner Windows el modo texto escribiría \r\n y el valor acabaría en \r
+    with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8', newline='\n') as fh:
         for key, value in out.items():
             if '\n' in value:
                 sys.exit(f'::error::{key} no puede tener saltos de línea')

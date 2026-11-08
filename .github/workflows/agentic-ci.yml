@@ -35,10 +35,24 @@ jobs:
           echo "::error::El título del PR debe seguir Conventional Commits, p. ej. 'feat: añade slugify' o 'fix(api): corrige el 404'. Título actual: $TITLE"
           exit 1
 
+  # 0 · Runner de los jobs que ejecutan el proyecto (repos/<repo>.json -> runner; Ubuntu por defecto).
+  #     Lo lee un job aparte porque runs-on se decide antes de que empiecen los pasos.
+  config:
+    name: config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      runner: ${{ steps.cfg.outputs.runner }}
+    steps:
+      - id: cfg
+        uses: carlos-anpr/platform-pipeline/actions/repo-config@v1
+
   # 2 · Lint, build, tests con cobertura (detectados sin configuración) y cobertura del diff
   build-test:
     name: build-test
-    runs-on: ubuntu-24.04
+    needs: [config]
+    runs-on: ${{ needs.config.outputs.runner }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -154,7 +168,8 @@ jobs:
   # 7 · La aplicación arranca y responde
   smoke:
     name: smoke
-    runs-on: ubuntu-24.04
+    needs: [config]
+    runs-on: ${{ needs.config.outputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read

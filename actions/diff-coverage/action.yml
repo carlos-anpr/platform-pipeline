@@ -12,4 +12,6 @@ runs:
         BASE: ${{ inputs.base }}
         ALLOW: ${{ inputs.allow-file }}
         MIN: ${{ inputs.min }}
-      run: python3 "$GITHUB_ACTION_PATH/check-diff-coverage.py" --base "$BASE" --allow-file "$ALLOW" --min "$MIN"
+      run: |
+        if [ "$RUNNER_OS" = Windows ]; then PY=python; else PY=python3; fi
+        "$PY" "$GITHUB_ACTION_PATH/check-diff-coverage.py" --base "$BASE" --allow-file "$ALLOW" --min "$MIN"

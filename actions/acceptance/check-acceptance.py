@@ -3,7 +3,8 @@
 
 Lee los criterios "- [ ] AC-n" del cuerpo del PR y de las issues enlazadas (Closes #N) como
 DATOS (nunca se ejecutan) y comprueba que cada AC-n aparece en el NOMBRE de al menos un test:
-título de it/test/describe (JS/TS), @DisplayName (Java/C#) o la función test_…ac1… (Python).
+título de it/test/describe (JS/TS), @DisplayName (Java/C#), la función test_…ac1… (Python)
+o la función #[test] fn ac1_… (Rust).
 Un comentario "// AC-1" no cuenta: no demuestra que exista un test. Límite: no se comprueba que
 ese test lo descubra el runner; que los tests que se ejecutan pasen lo garantiza build-test.
 
@@ -38,9 +39,31 @@ def linked_issue_numbers(text, repository):
     return sorted(numbers)
 
 
+def is_rust(path):
+    """Rust: los tests unitarios viven en los propios archivos (mod tests), así que se leen todos los .rs."""
+    return path.lower().endswith('.rs')
+
+
 def is_test(path):
+    if is_rust(path):
+        return True
     return bool(re.search(r'\.(py|[cm]?jsx?|tsx?|cs|java)$', path, re.I) and re.search(
         r'(^|/)(tests?|__tests__)(/|$)|(^|/)test_[^/]+\.py$|_test\.py$|\.(test|spec)\.[cm]?[jt]sx?$|Tests?\.(cs|java)$', path, re.I))
+
+
+RUST_TEST_FN = re.compile(r'#\[(?:[A-Za-z_][\w]*::)*test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)')
+# Comentarios, caracteres ('"'), cadenas crudas (r#"…"#) y cadenas normales, en ese orden de prioridad
+RUST_NOISE = re.compile(r'''//[^\n]*|/\*.*?\*/|b?'(?:\\.|[^'\\])'|b?r(#*)".*?"\1|b?"(?:\\.|[^"\\])*"''', re.S)
+
+
+def rust_test_names(text):
+    """Nombres de las funciones #[test] (o #[tokio::test]…). Comentarios y cadenas no cuentan."""
+    return RUST_TEST_FN.findall(RUST_NOISE.sub(' ', text))
+
+
+def ac_from_identifiers(idents):
+    """test_ac1_x, ac2_y, ac_3 → AC-1, AC-2, AC-3 (nombres de función de Python y Rust)."""
+    return '\n'.join('AC-' + n for n in re.findall(r'(?i)(?<![a-z0-9])ac_?([1-9][0-9]*)(?![0-9])', ' '.join(idents)))
 
 
 def slash_comments(text):
@@ -86,9 +109,10 @@ def test_references(files):
                 tree = ast.parse(text)
             except SyntaxError as error:
                 raise ValueError('No se puede leer el test: ' + path) from error
-            defs = ' '.join(node.name for node in ast.walk(tree)
-                            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith('test'))
-            names = '\n'.join('AC-' + n for n in re.findall(r'(?i)(?<![a-z0-9])ac_?([1-9][0-9]*)(?![0-9])', defs))
+            names = ac_from_identifiers(node.name for node in ast.walk(tree)
+                                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith('test'))
+        elif is_rust(path):
+            names = ac_from_identifiers(rust_test_names(text))
         else:
             _, names = slash_comments(text)
         for marker in re.findall(AC, names):
